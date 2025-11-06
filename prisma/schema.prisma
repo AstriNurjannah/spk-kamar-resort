@@ -4,12 +4,212 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
+
+//prisma client untuk berinteraksi dg database
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
 }
 
+// koneksi ke database
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+//user management system
+model users {
+  id            Int         @id @default(autoincrement())
+  username      String      @unique
+  email         String      @unique
+  password      String      
+  role          UserRole    //admin, manager, guest
+  created_at    DateTime    @default(now())
+  updated_at    DateTime    @updatedAt
+
+  //relasi ke tabel lain
+  bookings           bookings[]           //satu user bisa banyak bookings
+  preferences        preferences[]        //preferensi personal user
+  saw_calculations   saw_calculations[]   //history perhitungan saw_calculations
+  reports             reports[]           //laporan yg dibuat user  
+}
+
+enum UserRole{
+  ADMIN       //full akses
+  MANAGER     //kelola kamar & laporan
+  GUEST       //booking & lihat rekomendasi
+}
+
+
+model rooms{
+id            Int             @id @default(autoincrement())
+name          String          //nama kamar
+room_number   String          @unique
+room_type     RoomType        //tipe kamar
+category      RoomCategory    //kategori spesifik
+price         Decimal         @db.Decimal(10,2)
+capacity      Int
+size          Int
+view_type     ViewType
+bed_type      BedType
+amenities     String[]        //fasilitas
+availability  Boolean         @default(true)
+description   String?         //opsional
+created_at    DateTime        @default(now())
+updated_at    DateTime        @updatedAt
+
+//relasi
+room_criteria    room_criteria[]     //kriteria saw untuk kamar ini
+bookings          bookings[]         //booking histori
+}
+
+//tipe umum akomodasi
+enum RoomType{
+  DELUXE_ROOM     //kamar hotel standar
+  COTTAGE         //pondok terpisah
+}
+
+//kategori spesifik
+enum RoomCategory{
+  DELUXE
+  COTTAGE_DURIAN
+  COTTAGE_LENGKOK
+  COTTAGE_NGALAU
+  COTTAGE_TARUSAN
+  COTTAGE_BANSA
+}
+
+//jenis pemandangan
+enum ViewType{
+  POOL
+  BEACH
+  GARDEN
+  MOUNTAIN
+  CITY
+  NONE
+}
+
+//tempat tidur
+enum BedType{
+  KING
+  QUEEN
+  STANDARD
+  SINGLE
+  TWIN
+}
+
+//kriteria saw
+model criteria{
+  id            Int              @id @default(autoincrement())
+  name          String           @unique    //nama kriteria
+  code          String           @unique   //kode unik
+  weight        Float            //bobot kriteria
+  type          CriteriaType     //benefit/cost
+  description   String?
+  created_at    DateTime        @default(now())
+  updated_at    DateTime        @updatedAt
+
+  room_criteria   room_criteria[]   //relasi ke nilai kamar
+}
+
+enum CriteriaType{
+  BENEFIT
+  COST
+}
+
+//PENGHUBUNG MANY-TO-MANY antara rooms dan criteria
+//menyimpan nilai normalisasi
+model room_criteria{
+  id              Int     @id @default(autoincrement())
+  room_id         Int     //Foreign key ke room
+  criteria_id     Int     //Foreign key ke criteria
+  value           Float   //nilai normalisasi (0-1)
+
+  //relasi dengan Cascade delete
+  room    rooms     @relation(fields: [room_id], references: [id], onDelete: Cascade)
+  criteria   criteria    @relation(fields: [criteria_id], references: [id], onDelete: Cascade)
+
+  //constrain unik
+  //satu kamar tidak boleh memiliki duplikasi kriteria yg sama
+  @@unique([room_id, criteria_id])
+}
+
+//booking management
+model bookings{
+  id                Int             @id @default(autoincrement())
+  user_id           Int             //user yg melakukan booking
+  room_id           Int             //kamar yg dipesan
+  check_in          DateTime
+  check_out         DateTime
+  guests            Int             //jumlah tamu
+  total_price       Decimal         @db.Decimal(10,2)
+  status            BookingStatus   //Status booking
+  special_request   String?         //request khusus tamu/opsional
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+
+  //relasi
+  user    users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  room    rooms     @relation(fields: [room_id], references: [id], onDelete: Cascade)
+}
+
+//status booking
+enum BookingStatus{
+PENDING
+CONFIRMED
+CHECKED_IN
+CHECKED_OUT
+CANCELLED
+}
+
+//saw saw_calculations history
+model     saw_calculations{
+id                Int             @id @default(autoincrement())
+user_id           Int             //user yg melakukan perhitungan
+calculation_data  Json            //data mentah perhitungan: matrix, normalisasi dll
+recommendations    Json            //hasil rekomendasi
+created_at        DateTime        @default(now())
+
+user    users   @relation(fields:[user_id], references:[id], onDelete: Cascade)
+}
+
+//user refenrence
+model preferences{
+  id          Int           @id @default(autoincrement())
+user_id       Int           //user pemilik preferensi 
+budget_min    Decimal       @db.Decimal(10,2)
+budget_max    Decimal       @db.Decimal(10,2)
+room_type     RoomType?     //preferensi tipe kamar (opsional)
+view_type     ViewType?     //opsional
+min_size      Int?          //ukuran min kamar
+guests_count  Int?          //jumlah tamu
+priority_criteria   Json    //kriteria prioritas user untuk saw
+created_at        DateTime        @default(now())
+updated_at        DateTime        @updatedAt
+
+user    users   @relation(fields:[user_id], references:[id], onDelete: Cascade)
+}
+
+
+//reporting system
+model reports{
+  id           Int       @id @default(autoincrement())
+  title  String         //judul laporan
+  type    ReportType     //jenis laporan
+  data    Json           //data laporan 
+  period_from     DateTime    
+  period_to       DateTime
+  created_by      Int     //user yg membuat laporan
+  created_at      DateTime    @default(now())
+
+  user            users   @relation(fields: [created_by], references:[id], onDelete:Cascade)
+}
+
+//jenis laporan
+enum ReportType{
+  OCCUPANCY_RATE
+  REVENUE
+  ROOM_PREFERENCES
+  GUEST_ANALYTICS
+  SAW_ANALYSIS
 }
